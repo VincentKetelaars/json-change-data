@@ -91,6 +91,59 @@ class TestChangeDataDict(unittest.TestCase):
         # Because of the lazy_update, the first item is still the only item
         self.assertEqual(cdd.prior_ts(1), 0)
 
+    def test_diff(self):
+        cdd = ChangeDataDict(
+            dic={1: 5, 2: 3}, set_ts=5)
+        cdd.set_ts = 6
+        cdd[1] = 6
+
+        # The only difference is for key 1
+        self.assertEqual(
+            cdd.diff(LookupType.FIRST),
+            {1: (6, 5)}
+        )
+        # Lookup before first timestamp
+        not_exist = ChangeDataDict.NON_EXISTENT
+        self.assertEqual(
+            cdd.diff(LookupType.TIMESTAMP, lookup_ts=4),
+            {1: (6, not_exist), 2: (3, not_exist)}
+        )
+        # Delete key 1
+        cdd.set_ts = 7
+        del cdd[1]
+        self.assertEqual(
+            cdd.diff(LookupType.FIRST),
+            {1: (ChangeDataDict.DELETED, 5)}
+        )
+
+
+    def test_to_dict(self):
+        cdd = ChangeDataDict(dic={1: 5, 2: 3}, set_ts=0)
+        cdd.set_ts = 1
+        cdd[1] = 6
+
+        # By default we use LookupType.LAST
+        self.assertEqual(
+            cdd.to_dict(snapshot=True),
+            {1: 6, 2: 3}
+        )
+        cdd.lookup_type = LookupType.FIRST
+        self.assertEqual(
+            cdd.to_dict(snapshot=True),
+            {1: 5, 2: 3}
+        )
+        # Make sure that we can still create dicts after deleting
+        del cdd[2]
+        self.assertEqual(
+            cdd.to_dict(snapshot=True),
+            {1: 5, 2: 3}
+        )
+        cdd.lookup_type = LookupType.LAST
+        self.assertEqual(
+            cdd.to_dict(snapshot=True),
+            {1: 6}
+        )
+
     def test_to_json(self):
         cdd = ChangeDataDict(dic={1: 5}, set_ts=0)
         cdd.set_ts = 1

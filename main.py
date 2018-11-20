@@ -63,6 +63,9 @@ class LookupType(object):
 
 
 class ChangeDataDict(MutableMapping):
+    # TODO: For diff function, to be able to differentiate
+    DELETED = (None, 'DELETED')
+    NON_EXISTENT = (None, 'NON_EXISTENT')
 
     def __init__(self, dic=None, lookup_type=None, lookup_ts=None, set_ts=None,
                  lazy_update=False, version=None, source=None):
@@ -136,20 +139,23 @@ class ChangeDataDict(MutableMapping):
     def source(self):
         return self._source
 
-    def get_item(self, key):
+    def _get_item(self, key, lookup_type, lookup_ts=None):
         history = self._store[key]
         cur_item = None
-        if self.lookup_type == LookupType.LAST:
+        if lookup_type == LookupType.LAST:
             cur_item = history[-1]
-        elif self.lookup_type == LookupType.FIRST:
+        elif lookup_type == LookupType.FIRST:
             cur_item = history[0]
-        elif self.lookup_type == LookupType.TIMESTAMP:
+        elif lookup_type == LookupType.TIMESTAMP:
             # TODO: Faster implementation
             for item in history:
-                if item['ts'] > self.lookup_ts:
+                if item['ts'] > lookup_ts:
                     break
                 cur_item = item
         return cur_item
+
+    def get_item(self, key):
+        return self._get_item(key, self.lookup_type, lookup_ts=self.lookup_ts)
 
     def __getitem__(self, key):
         cur_item = self.get_item(key)
@@ -211,13 +217,38 @@ class ChangeDataDict(MutableMapping):
         self._store[key].append(item)
 
     def __iter__(self):
-        return self._store.__iter__()
+        for key in self._store:
+            item = self.get_item(key)
+            if not item.get('del', False):
+                yield key
 
     def __len__(self):
         return len(self._store)
 
-    def to_dict(self):
-        return dict(self._store)
+    def diff(self, lookup_type, lookup_ts=None):
 
-    def to_json(self):
-        return json.dumps(self.to_dict())
+        def to_value(item):
+            if item is None:
+                return self.NON_EXISTENT
+            elif item.get('del', False):
+                return self.DELETED
+            return item['value']
+
+        diff = {}
+        for key in self._store:
+            cur_item = self.get_item(key)
+            comp_item = self._get_item(key, lookup_type, lookup_ts=lookup_ts)
+            value = to_value(cur_item)
+            comp_value = to_value(comp_item)
+            if value != comp_value:
+                diff[key] = (value, comp_value)
+        return diff
+
+    def to_dict(self, snapshot=False):
+        # TODO: recursively handle ChangeDataDict
+        if not snapshot:
+            return dict(self._store)
+        return dict(self.iteritems())
+
+    def to_json(self, snapshot=False):
+        return json.dumps(self.to_dict(snapshot=snapshot))
